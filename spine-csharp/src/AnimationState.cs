@@ -29,6 +29,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 namespace Spine {
 
@@ -86,6 +87,12 @@ namespace Spine {
 		internal void OnComplete (TrackEntry entry) { if (Complete != null) Complete(entry); }
 		internal void OnEvent (TrackEntry entry, Event e) { if (Event != null) Event(entry, e); }
 
+        // add triggers by time to any animation, automatically trigger "started" and "finished"
+        private Dictionary<string, Dictionary<string, float>> triggers = new Dictionary<string, Dictionary<string, float>>();
+
+        // triggered last frame
+        private ExposedList<(string AnimationName, string TriggerName)> triggered = new ExposedList<(string AnimationName, string TriggerName)>();
+
 		public delegate void TrackEntryDelegate (TrackEntry trackEntry);
 		/// <summary>See <see href="http://esotericsoftware.com/spine-api-reference#AnimationStateListener-Methods">
 		/// API Reference documentation pages here</see> for details. Usage in C# and spine-unity is explained
@@ -137,6 +144,8 @@ namespace Spine {
 		/// Increments the track entry <see cref="TrackEntry.TrackTime"/>, setting queued animations as current if needed.</summary>
 		/// <param name="delta">delta time</param>
 		public void Update (float delta) {
+            triggered.Clear();
+
 			delta *= timeScale;
 			TrackEntry[] tracksItems = tracks.Items;
 			for (int i = 0, n = tracks.Count; i < n; i++) {
@@ -161,9 +170,11 @@ namespace Spine {
 					float nextTime = current.trackLast - next.delay;
 					if (nextTime >= 0) {
 						next.delay = 0;
+                        float prevNextTrackTime = next.trackTime;
 						next.trackTime += current.timeScale == 0 ? 0 : (nextTime / current.timeScale + delta) * next.timeScale;
 						current.trackTime += currentDelta;
 						SetCurrent(i, next, true);
+                        UpdateTriggers(next, prevNextTrackTime);
 						while (next.mixingFrom != null) {
 							next.mixTime += delta;
 							next = next.mixingFrom;
@@ -188,11 +199,41 @@ namespace Spine {
 					}
 				}
 
+                float prevTrackTime = current.trackTime;
 				current.trackTime += currentDelta;
+                UpdateTriggers(current, prevTrackTime);
 			}
 
 			queue.Drain();
 		}
+
+        private void UpdateTriggers(TrackEntry current, float prevTime) {
+            // automatically trigger "started"
+            if ((prevTime == 0.0f && current.delay == 0.0f) || (current.trackTime % current.animation.duration) < (prevTime % current.animation.duration)) {
+                triggered.Add((current.animation.name, "started"));
+            }
+
+            foreach (KeyValuePair<string, Dictionary<string, float>> triggersByAnim in triggers) {
+                foreach (KeyValuePair<string, float> trigger in triggersByAnim.Value) {
+                    float wrappedTime = current.trackTime % current.animation.duration;
+                    float wrappedPrevTime = prevTime % current.animation.duration;
+
+                    if (
+                            // normal situation
+                            (trigger.Value > wrappedPrevTime && trigger.Value <= wrappedTime)
+                            // loop sitation(TODO: check if this track is still playing?)
+                            || (wrappedPrevTime > wrappedTime && (trigger.Value <= wrappedTime || trigger.Value > wrappedPrevTime))
+                       ) {
+                        triggered.Add((current.animation.name, trigger.Key));
+                    }
+                }
+            }
+
+            // automaticall trigger "finished"
+            if (current.trackTime == current.animation.duration || (current.trackTime % current.animation.duration) < (prevTime % current.animation.duration)) {
+                triggered.Add((current.animation.name, "finished"));
+            }
+        }
 
 		/// <summary>Returns true when all mixing from entries are complete.</summary>
 		private bool UpdateMixingFrom (TrackEntry to, float delta) {
@@ -923,6 +964,93 @@ namespace Spine {
 			return tracks.Items[trackIndex];
 		}
 
+        public bool IsPlaying(string animPattern, int trackIndex) {
+			if (trackIndex >= tracks.Count) return false;
+            return Regex.IsMatch(tracks.Items[trackIndex].Animation.Name, animPattern);
+        }
+
+        public string? GetAnimationName(int trackIndex) {
+            return GetCurrent(0)?.Animation.Name;
+        }
+
+        // add animation trigger by time
+        public void AddTrigger(string animName, string triggerName, float time) {
+            if (!triggers.ContainsKey(animName)) {
+                triggers.Add(animName, new Dictionary<string, float>());
+            }
+
+            triggers[animName].Add(triggerName, time);
+        }
+
+        public bool IsTriggered(string animPattern, string triggerName) {
+            foreach (var t in triggered) {
+                if (Regex.IsMatch(t.AnimationName, animPattern) && t.TriggerName == triggerName) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // public bool IsAnyTriggered((string AnimationName, string TriggerNamePattern)[] triggers) {
+        //     foreach (var trigger in triggers) {
+        //         foreach (var triggeredTrigger in triggered) {
+        //             if (triggeredTrigger.AnimationName == trigger.AnimationName && MatchPattern(triggeredTrigger.TriggerName, trigger.TriggerNamePattern)) {
+        //                 return true;
+        //             }
+        //         }
+        //     }
+        //
+        //     return false;
+        // }
+
+        public float GetTriggerTime(string animName, string triggerName) {
+            if (triggerName == "started") {
+                return 0.0f;
+            } else if (triggerName == "finished") {
+                Animation animation = data.skeletonData.FindAnimation(animName);
+                return animation.duration;
+            } else if (triggers.ContainsKey(animName) &&  triggers[animName].ContainsKey(triggerName)) {
+                return triggers[animName][triggerName];
+            }
+
+            return 0.0f;
+        }
+
+        // return true if trigger was already triggered before(or now) in current loop
+        public bool IsTriggeredBefore(string triggerName, int trackIndex) {
+            if (trackIndex >= tracks.Count) return false;
+
+            TrackEntry current = tracks.Items[trackIndex];
+
+            float? triggerTime = GetTriggerTime(current.animation.Name, triggerName);
+
+            if (triggerTime == null) {
+                return false;
+            }
+
+            float wrappedTime = current.trackTime % current.animation.duration;
+
+            if (current.trackTime == current.animation.duration) {
+                wrappedTime = current.animation.duration;
+            }
+
+            return triggerTime <= wrappedTime;
+        }
+
+        // return all animations by regex pattern
+        // private List<Animation> GetAnimationsByPattern(string pattern) {
+        //     var matched = new List<Animation>();
+        //
+		// 	foreach (var anim in data.skeletonData.animations) {
+        //         if (Regex.IsMatch(anim.Name, pattern)) {
+        //             matched.Add(anim);
+        //         }
+        //     }
+        //
+        //     return matched;
+        // }
+
 		/// <summary> Discards all listener notifications that have not yet been delivered. This can be useful to call from an
 		/// AnimationState event subscriber when it is known that further notifications that may have been already queued for delivery
 		/// are not wanted because new animations are being set.
@@ -1455,3 +1583,4 @@ namespace Spine {
 		}
 	}
 }
+
