@@ -46,6 +46,7 @@ namespace Spine.Unity.Editor {
 		protected SerializedProperty rigidBody2D;
 		protected SerializedProperty applyRigidbody2DGravity;
 		protected SerializedProperty rigidBody;
+		protected SerializedProperty manually;
 
 		protected GUIContent rootMotionBoneNameLabel;
 		protected GUIContent transformPositionXLabel;
@@ -59,6 +60,7 @@ namespace Spine.Unity.Editor {
 		protected GUIContent rigidBody2DLabel;
 		protected GUIContent applyRigidbody2DGravityLabel;
 		protected GUIContent rigidBodyLabel;
+		protected GUIContent manuallyLabel;
 
 		protected virtual void OnEnable () {
 
@@ -74,6 +76,7 @@ namespace Spine.Unity.Editor {
 			rigidBody2D = serializedObject.FindProperty("rigidBody2D");
 			applyRigidbody2DGravity = serializedObject.FindProperty("applyRigidbody2DGravity");
 			rigidBody = serializedObject.FindProperty("rigidBody");
+			manually = serializedObject.FindProperty("manually");
 
 			rootMotionBoneNameLabel = new UnityEngine.GUIContent("Root Motion Bone", "The bone to take the motion from.");
 			transformPositionXLabel = new UnityEngine.GUIContent("X", "Root transform position (X)");
@@ -98,6 +101,8 @@ namespace Spine.Unity.Editor {
 				"\n\n" +
 				"Note that animation and physics updates are not always in sync." +
 				"Some jitter may result at certain framerates.");
+			manuallyLabel = new UnityEngine.GUIContent("Use Manually",
+				"Allow to fetch translation/rotation of root motion from code, don't do anything else");
 		}
 
 		public override void OnInspectorGUI () {
@@ -129,6 +134,7 @@ namespace Spine.Unity.Editor {
 			}
 
 			EditorGUILayout.PropertyField(rigidBody, rigidBodyLabel);
+			EditorGUILayout.PropertyField(manually, manuallyLabel);
 			DisplayWarnings();
 		}
 
@@ -146,3 +152,4 @@ namespace Spine.Unity.Editor {
 		}
 	}
 }
+

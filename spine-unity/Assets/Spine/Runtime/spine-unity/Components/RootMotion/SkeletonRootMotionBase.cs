@@ -60,6 +60,9 @@ namespace Spine.Unity {
 		public Rigidbody2D rigidBody2D;
 		public bool applyRigidbody2DGravity = false;
 		public Rigidbody rigidBody;
+        // manually use offset numbers 
+        // mTranslation, mRotation
+        public bool manually = false;
 
 		/// <summary>Delegate type for customizing application of rootmotion.
 		public delegate void RootMotionDelegate (SkeletonRootMotionBase component, Vector2 translation, float rotation);
@@ -149,6 +152,9 @@ namespace Spine.Unity {
 		protected float rigidbody2DRotation;
 		protected float initialOffsetRotation;
 		protected float tempSkeletonRotation;
+
+        public float mRotation = 0.0f;
+        public Vector2 mTranslation = new Vector2(0.0f, 0.0f);
 
 		protected virtual void Reset () {
 			FindRigidbodyComponent();
@@ -559,8 +565,13 @@ namespace Spine.Unity {
 			// are offsetting bone locations to prevent stutter which would otherwise occur if
 			// we don't move every Update.
 			bool usesRigidbody = this.UsesRigidbody;
-			bool applyToTransform = !usesRigidbody && (ProcessRootMotionOverride == null || !disableOnOverride);
+			bool applyToTransform = !usesRigidbody && (ProcessRootMotionOverride == null || !disableOnOverride) && !manually;
 			accumulatedUntilFixedUpdate = !applyToTransform && !skeletonAnimationUsesFixedUpdate;
+
+            if (manually) {
+                mRotation = skeletonRotationDelta;
+                mTranslation = skeletonTranslationDelta;
+            }
 
 			if (ProcessRootMotionOverride != null)
 				ProcessRootMotionOverride(this, skeletonTranslationDelta, skeletonRotationDelta);
@@ -707,3 +718,4 @@ namespace Spine.Unity {
 		}
 	}
 }
+
